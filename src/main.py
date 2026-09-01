@@ -14,6 +14,11 @@ except Exception:  # pragma: no cover - 兼容 package 导入路径
     from src.source_config import get_source_backend, load_config_with_source_migration
 
 try:
+    from subscription_plan import MISSING_SUBSCRIPTION_MESSAGE, has_subscription_queries
+except Exception:  # pragma: no cover - 兼容 package 导入路径
+    from src.subscription_plan import MISSING_SUBSCRIPTION_MESSAGE, has_subscription_queries
+
+try:
     import yaml  # type: ignore
 except Exception:  # pragma: no cover
     yaml = None
@@ -581,6 +586,9 @@ def main() -> None:
     else:
         os.environ.pop("DPR_FILTER_PROFILE_TAG", None)
         os.environ.pop("DPR_INCLUDE_CONFERENCE_ONLY_PROFILES", None)
+    if not has_subscription_queries(_load_full_config()):
+        print(f"[ERROR] {MISSING_SUBSCRIPTION_MESSAGE}", flush=True)
+        raise SystemExit(2)
     fetch_mode = (args.fetch_mode or "auto").strip().lower()
     if fetch_mode == "skims":
         use_skims_mode = True

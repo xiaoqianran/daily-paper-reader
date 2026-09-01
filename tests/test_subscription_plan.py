@@ -8,6 +8,7 @@ sys.path.insert(0, str(ROOT))
 from src.subscription_plan import (
     build_pipeline_inputs,
     count_subscription_tags,
+    has_subscription_queries,
 )
 
 
@@ -55,6 +56,28 @@ class SubscriptionPlanTest(unittest.TestCase):
         self.assertEqual(plan['embedding_queries'], [])
         self.assertEqual(plan['context_keywords'], [])
         self.assertEqual(plan['context_queries'], [])
+        self.assertFalse(has_subscription_queries({'subscriptions': {'keyword_recall_mode': 'or'}}))
+
+    def test_has_subscription_queries_with_profiles(self):
+        cfg = {
+            'subscriptions': {
+                'intent_profiles': [
+                    {
+                        'id': 'p1',
+                        'tag': 'SR',
+                        'enabled': True,
+                        'keywords': [
+                            {
+                                'keyword': 'symbolic regression',
+                                'query': 'symbolic regression methods',
+                                'enabled': True,
+                            },
+                        ],
+                    }
+                ],
+            }
+        }
+        self.assertTrue(has_subscription_queries(cfg))
 
     def test_build_pipeline_inputs_boolean_mixed_mode(self):
         cfg = {
