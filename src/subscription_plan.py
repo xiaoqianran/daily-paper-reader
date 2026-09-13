@@ -536,6 +536,17 @@ def build_pipeline_inputs(config: Dict[str, Any]) -> Dict[str, Any]:
   }
 
 
+MISSING_SUBSCRIPTION_MESSAGE = (
+  "config.yaml 未配置 subscriptions.intent_profiles，召回查询为空。"
+  "请在站点设置中添加研究方向并保存，或从 docs_init/config.yaml 复制示例词条后再运行日报。"
+)
+
+
+def has_subscription_queries(config: Dict[str, Any] | None) -> bool:
+  plan = build_pipeline_inputs(config or {})
+  return bool(plan.get("bm25_queries") or plan.get("embedding_queries"))
+
+
 def count_subscription_tags(config: Dict[str, Any]) -> Tuple[int, List[str]]:
   plan = build_pipeline_inputs(config or {})
   tags = _uniq_keep_order([_norm_text(x) for x in (plan.get("tags") or [])])

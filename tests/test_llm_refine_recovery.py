@@ -196,6 +196,83 @@ class LlmRefineRecoveryTest(unittest.TestCase):
         self.assertNotIn("<= 60 Chinese characters", user_content)
         self.assertTrue(user_content.rstrip().endswith("Output must be strict JSON only, no markdown, no fences, no extra text."))
 
+    def test_star_rating_fallback_keeps_high_stars(self):
+        ranked = self.mod.build_rerank_star_fallback_ranked(
+            [
+                {
+                    "paper_tag": "query:SR",
+                    "query_text": "symbolic regression",
+                    "ranked": [
+                        {"paper_id": "p-5", "star_rating": 5},
+                        {"paper_id": "p-4", "star_rating": 4},
+                        {"paper_id": "p-3", "star_rating": 3},
+                    ],
+                }
+            ],
+            {"p-5", "p-4", "p-3"},
+            min_star=4,
+        )
+        scores = {item["paper_id"]: item["score"] for item in ranked}
+        self.assertEqual(set(scores), {"p-5", "p-4"})
+        self.assertEqual(scores["p-5"], 8.5)
+        self.assertEqual(scores["p-4"], 6.5)
+
+    def test_process_file_uses_star_fallback_without_api_key(self):
+        import json
+        import os
+        import tempfile
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_path = os.path.join(tmpdir, "ranked.json")
+            output_path = os.path.join(tmpdir, "ranked.llm.json")
+            config_path = os.path.join(tmpdir, "config.yaml")
+            with open(config_path, "w", encoding="utf-8") as f:
+                f.write(
+                    "subscriptions:\n"
+                    "  intent_profiles:\n"
+                    "    - tag: SR\n"
+                    "      enabled: true\n"
+                    "      keywords:\n"
+                    "        - keyword: symbolic regression\n"
+                    "          query: symbolic regression methods\n"
+                )
+            payload = {
+                "papers": [
+                    {"id": "p-5", "title": "Five Star", "abstract": "A"},
+                    {"id": "p-4", "title": "Four Star", "abstract": "B"},
+                ],
+                "queries": [
+                    {
+                        "paper_tag": "query:SR",
+                        "query_text": "symbolic regression",
+                        "ranked": [
+                            {"paper_id": "p-5", "star_rating": 5},
+                            {"paper_id": "p-4", "star_rating": 4},
+                        ],
+                    }
+                ],
+            }
+            with open(input_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f)
+            with patch.dict(os.environ, {}, clear=True):
+                self.mod.process_file(
+                    input_path,
+                    output_path,
+                    config_path=config_path,
+                    min_star=4,
+                    batch_size=10,
+                    max_chars=2000,
+                    filter_model="deepseek-v4-flash",
+                    max_output_tokens=1024,
+                    filter_concurrency=1,
+                )
+            with open(output_path, "r", encoding="utf-8") as f:
+                out = json.load(f)
+        self.assertEqual(out.get("llm_ranked_fallback"), "rerank_stars")
+        self.assertEqual([item["paper_id"] for item in out["llm_ranked"]], ["p-5", "p-4"])
+        self.assertEqual(out["llm_ranked"][0]["score"], 8.5)
+
 
 if __name__ == "__main__":
     unittest.main()
