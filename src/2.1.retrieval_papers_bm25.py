@@ -1020,8 +1020,8 @@ def main() -> None:
       f"embedding_only_legacy={comparison.get('embedding_only_legacy_count', 0)}"
     )
   if not queries:
-    log("[ERROR] 未能从订阅配置中解析到 BM25 查询，退出。")
-    return
+    log("[ERROR] 未能从订阅配置中解析到 BM25 查询，退出。请先在 config.yaml 配置 intent_profiles。")
+    raise SystemExit(2)
 
   query_groups = group_queries_by_source(queries)
   for source_key in query_groups:

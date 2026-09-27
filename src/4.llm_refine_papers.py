@@ -762,6 +762,69 @@ def _filter_batch(
     )
 
 
+def star_rating_to_fallback_score(star_rating: Any) -> float:
+    try:
+        stars = int(star_rating)
+    except Exception:
+        stars = 0
+    mapping = {5: 8.5, 4: 6.5}
+    if stars in mapping:
+        return mapping[stars]
+    return _coerce_score(float(stars) * 1.5)
+
+
+def build_rerank_star_fallback_ranked(
+    queries: List[Dict[str, Any]],
+    paper_ids: set[str],
+    min_star: int,
+) -> List[Dict[str, Any]]:
+    """No LLM key: keep the pipeline alive by mapping rerank stars onto llm_ranked."""
+    merged: Dict[str, Dict[str, Any]] = {}
+    for query in queries or []:
+        if not isinstance(query, dict):
+            continue
+        matched_tag = _norm_text(query.get("paper_tag") or query.get("tag"))
+        matched_query = _norm_text(query.get("query_text") or query.get("query"))
+        for item in query.get("ranked") or []:
+            if not isinstance(item, dict):
+                continue
+            pid = _norm_text(item.get("paper_id") or item.get("id"))
+            if not pid or pid not in paper_ids:
+                continue
+            try:
+                stars = int(item.get("star_rating") or 0)
+            except Exception:
+                stars = 0
+            if stars < min_star:
+                continue
+            score = star_rating_to_fallback_score(stars)
+            prev = merged.get(pid)
+            if prev is not None and score <= float(prev.get("score") or 0):
+                continue
+            evidence_cn = f"未配置 DeepSeek API Key，已用重排 {stars}★ 作为临时相关性分数。"
+            evidence_en = (
+                f"DeepSeek API key is missing; used rerank {stars}★ as a temporary relevance score."
+            )
+            merged[pid] = {
+                "paper_id": pid,
+                "score": score,
+                "evidence_en": evidence_en,
+                "evidence_cn": evidence_cn,
+                "canonical_evidence": evidence_cn,
+                "tldr_en": evidence_en,
+                "tldr_cn": evidence_cn,
+                "title_zh": "",
+                "motivation_cn": evidence_cn,
+                "method_cn": "方法细节请参考摘要与原文",
+                "result_cn": evidence_cn,
+                "conclusion_cn": evidence_cn,
+                "matched_requirement_id": "",
+                "matched_query_tag": matched_tag,
+                "matched_query_text": matched_query,
+            }
+    return sorted(merged.values(), key=lambda item: float(item.get("score") or 0), reverse=True)
+
+
 def process_file(
     input_path: str,
     output_path: str,
@@ -795,7 +858,17 @@ def process_file(
 
     api_key = os.getenv("DEEPSEEK_API_KEY") or os.getenv("SUMMARY_API_KEY")
     if not api_key:
-        raise RuntimeError("missing DEEPSEEK_API_KEY or SUMMARY_API_KEY")
+        fallback_ranked = build_rerank_star_fallback_ranked(queries, set(paper_map), min_star)
+        log(
+            "[WARN] 未配置 DEEPSEEK_API_KEY 或 SUMMARY_API_KEY，"
+            f"已用 rerank 星级生成 {len(fallback_ranked)} 条临时 llm_ranked。"
+            "请在 GitHub Secrets 配置 DEEPSEEK_API_KEY 以启用精炼打分与中文摘要。"
+        )
+        data["llm_ranked"] = fallback_ranked
+        data["llm_ranked_at"] = datetime.now(timezone.utc).isoformat()
+        data["llm_ranked_fallback"] = "rerank_stars"
+        save_json(data, output_path)
+        return
 
     group_start(f"Step 4 - llm refine {os.path.basename(input_path)}")
     log(

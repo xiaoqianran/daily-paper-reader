@@ -144,5 +144,29 @@ class MainPipelineTest(unittest.TestCase):
             self.assertIn("Step 3 - Rerank", labels)
 
 
+    def test_main_exits_when_subscription_queries_missing(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            src_dir = root / "src"
+            src_dir.mkdir(parents=True, exist_ok=True)
+            with patch.object(self.mod, "ROOT_DIR", str(root)), patch.object(
+                self.mod, "SRC_DIR", str(src_dir)
+            ), patch.object(
+                self.mod, "_load_full_config", return_value={"subscriptions": {}}
+            ), patch.object(
+                self.mod, "run_step"
+            ) as run_step, patch.object(
+                sys, "argv", ["main.py"]
+            ), patch.dict(
+                os.environ,
+                {},
+                clear=True,
+            ):
+                with self.assertRaises(SystemExit) as raised:
+                    self.mod.main()
+            self.assertEqual(raised.exception.code, 2)
+            run_step.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
